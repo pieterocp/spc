@@ -10,23 +10,19 @@ import (
 	consolelogger "github.com/semaphoreci/spc/pkg/consolelogger"
 )
 
-//
 // Fetching branches from Git remotes has a non-trivial performance impact.
 // In this structure we store already fetched branches.
 // If the branch was already fetched, the Fetch action will be a noop.
 //
 // Results of fetch are only memorized if there are no errors while fetching.
-//
 var fetchedBranches map[string]string
 
-//
 // Running and listing diffs has a non-trivial performance impact.
 // In this structure we store already evaluated git diff outputs.
 // If the diff is already evaluated for a commitRange range, the Diff action
 // will be noop.
 //
 // Diff results are only memorized if there are no errors.
-//
 var evaluatedDiffs map[string][]string
 
 func init() {
@@ -89,7 +85,7 @@ const InitialDeepenBy = 100
 
 func unshallow(commitRange string) error {
 	for i := 0; i < MaxUnshallowIterations; i++ {
-		if canResolveCommitRnage(commitRange) {
+		if canResolveCommitRange(commitRange) {
 			return nil
 		}
 
@@ -116,7 +112,50 @@ func deepen(numberOfCommits int) error {
 	return err
 }
 
-func canResolveCommitRnage(commitRange string) bool {
+func canResolveCommitRange(commitRange string) bool {
+	if needsMergeBase(commitRange) && !mergeBaseAvailable(commitRange) {
+		return false
+	}
+
+	return diffIsResolvable(commitRange)
+}
+
+func needsMergeBase(commitRange string) bool {
+	return strings.Contains(commitRange, threeDots)
+}
+
+func mergeBaseAvailable(commitRange string) bool {
+	base, head, ok := splitThreeDotRange(commitRange)
+	if !ok {
+		return false
+	}
+
+	output, err := run("merge-base", base, head)
+	if err != nil {
+		consolelogger.Info(output)
+		return false
+	}
+
+	return strings.TrimSpace(output) != ""
+}
+
+func splitThreeDotRange(commitRange string) (string, string, bool) {
+	parts := strings.Split(commitRange, threeDots)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+
+	base := strings.TrimSpace(parts[0])
+	head := strings.TrimSpace(parts[1])
+
+	if base == "" || head == "" {
+		return "", "", false
+	}
+
+	return base, head, true
+}
+
+func diffIsResolvable(commitRange string) bool {
 	output, err := run("diff", "--shortstat", commitRange)
 	if err != nil {
 		consolelogger.Info(output)
